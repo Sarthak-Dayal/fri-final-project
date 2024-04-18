@@ -4,7 +4,7 @@ import requests
 client = OpenAI()
 
 # OpenAI API Key
-api_key = "abc"
+api_key = "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"
 
 # Function to encode the image
 def encode_image(image_path):
