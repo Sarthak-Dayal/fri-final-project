@@ -1,6 +1,7 @@
 from segment_anything import SamPredictor, sam_model_registry, SamAutomaticMaskGenerator
 import matplotlib.pyplot as plt
 import cv2
+import numpy as np
 
 def show_anns(anns):
     if len(anns) == 0:
@@ -29,12 +30,10 @@ sam = sam_model_registry["vit_h"](checkpoint="sam_vit_h_4b8939.pth")
 print(3)
 sam.to(device="cuda")
 print(4)
-predictor.set_image(image)
-print(5)
 mask_generator = SamAutomaticMaskGenerator(sam)
-print(6)
+print(5)
 masks = mask_generator.generate(image)
-print(7)
+print(6)
 
 plt.figure(figsize=(20,20))
 plt.imshow(image)
