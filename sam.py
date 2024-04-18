@@ -1,5 +1,5 @@
 from segment_anything import SamPredictor, sam_model_registry, SamAutomaticMaskGenerator
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import cv2
 
 def load_image(image_path):
