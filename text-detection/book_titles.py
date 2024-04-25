@@ -1,10 +1,15 @@
 from openai import OpenAI
 import base64
 import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 client = OpenAI()
 
-# OpenAI API Key
-api_key = "sk-proj-TBXs37oBZ11YGa0TIMKGT3BlbkFJ1Ful5iX1TCpYNNQFkHuu"
+# OpenAI API Key an environment variable called API_KEY
+api_key = os.getenv('API_KEY')
 
 # Function to encode the image
 def encode_image(image_path):
