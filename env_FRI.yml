@@ -4,7 +4,7 @@ channels:
   - defaults
 dependencies:
   - bzip2=1.0.8=h93a5062_5
-  - ca-certificates=2024.2.2=hf0a4a13_0
+  - ca-certificates=2024.3.11=hf0a4a13_0
   - libffi=3.4.2=h3422bc3_5
   - libsqlite=3.45.2=h091b4b1_0
   - libzlib=1.2.13=h53f4e23_5
