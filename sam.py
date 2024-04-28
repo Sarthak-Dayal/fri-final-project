@@ -67,10 +67,13 @@ show_annotated(annotated_image)
 annotated_pil_image = Image.fromarray(annotated_image)
 labels = ["book", "not a book"]
 inputs = processor(text=labels, images=image, return_tensors="pt", padding=True)
+mask = np.repeat(masks[0]['segmentation'][:, :, np.newaxis].astype(int), 3, axis=2)
+print(mask.shape)
+print(image.shape)
 
-
-for mask in masks:
-    masked_img = image
+for mask_dict in masks:
+    mask = np.repeat(mask_dict['segmentation'][:, :, np.newaxis].astype(int), 3, axis=2)
+    masked_img = image.copy()
     cv2.bitwise_or(image, mask, masked_img)
     outputs = model(**inputs)
     logits_per_image = outputs.logits_per_image
