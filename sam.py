@@ -1,11 +1,23 @@
-from segment_anything import SamPredictor, sam_model_registry, SamAutomaticMaskGenerator
+from transformers import CLIPProcessor, CLIPModel
+from PIL import Image
+import torch
+
+from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
 import matplotlib.pyplot as plt
 import cv2
 import torch
 import numpy as np
 import supervision as sv
 
-def show_anns(anns):
+model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+def load_image(image_path):
+    image = cv2.imread(image_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
+    return image
+
+def get_anns(anns):
     if len(anns) == 0:
         return
     sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
@@ -20,21 +32,22 @@ def show_anns(anns):
         color_mask = np.concatenate([np.random.random(3), [0.35]])
         img[m] = color_mask
     return img
-    
-def load_image(image_path):
-    image = cv2.imread(image_path)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
-    return image
 
-print(1)
+def show_annotated(annotated_image):
+    plt.figure(figsize=(20,20))
+    plt.imshow(annotated_image)
+    # masked_img = show_anns(masks)
+    ax = plt.gca()
+    ax.set_autoscale_on(False)
+    # ax.imshow(masked_img[0:100])
+    plt.axis('off')
+    plt.show()
+
 image = load_image("original_image.jpg")
-print(2)
 sam = sam_model_registry["vit_h"](checkpoint="sam_vit_h_4b8939.pth")
-print(3)
 sam.to(device="cuda")
-print(4)
 image = cv2.resize(image, (1024, 1024), interpolation=cv2.INTER_LINEAR)
-print(5)
+
 mask_generator = SamAutomaticMaskGenerator(model=sam,
     points_per_side=32,
     pred_iou_thresh=0.98,
@@ -43,22 +56,27 @@ mask_generator = SamAutomaticMaskGenerator(model=sam,
     crop_n_points_downscale_factor=2,
     min_mask_region_area=100)
 
-
-print(5)
 masks = mask_generator.generate(image)
-print(6)
-print(len(masks))
-print("mask")
 
 mask_annotator = sv.MaskAnnotator(color_lookup = sv.ColorLookup.INDEX)
 detections = sv.Detections.from_sam(masks)
 annotated_image = mask_annotator.annotate(image, detections)
 
-plt.figure(figsize=(20,20))
-plt.imshow(annotated_image)
-# masked_img = show_anns(masks)
-ax = plt.gca()
-ax.set_autoscale_on(False)
-# ax.imshow(masked_img[0:100])
-plt.axis('off')
-plt.show()
+show_annotated(annotated_image)
+
+annotated_pil_image = Image.fromarray(annotated_image)
+labels = ["book", "not a book"]
+inputs = processor(text=labels, images=image, return_tensors="pt", padding=True)
+
+
+for mask in masks:
+    masked_img = image
+    cv2.bitwise_or(image, mask, masked_img)
+    outputs = model(**inputs)
+    logits_per_image = outputs.logits_per_image
+
+    probs = torch.softmax(logits_per_image, dim=1)
+    best_label_idx = torch.argmax(probs)
+    best_label = labels[best_label_idx]
+
+    print(f"The image is most likely a: {best_label}")
