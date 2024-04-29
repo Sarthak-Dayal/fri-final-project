@@ -50,11 +50,12 @@ image = cv2.resize(image, (1024, 1024), interpolation=cv2.INTER_LINEAR)
 
 mask_generator = SamAutomaticMaskGenerator(model=sam,
     points_per_side=32,
+    points_per_batch=128,
     pred_iou_thresh=0.98,
     stability_score_thresh=0.97,
     crop_n_layers=1,
     crop_n_points_downscale_factor=2,
-    min_mask_region_area=100)
+    min_mask_region_area=500)
 
 masks = mask_generator.generate(image)
 
@@ -65,21 +66,23 @@ annotated_image = mask_annotator.annotate(image, detections)
 show_annotated(annotated_image)
 
 annotated_pil_image = Image.fromarray(annotated_image)
-labels = ["book", "not a book"]
-inputs = processor(text=labels, images=image, return_tensors="pt", padding=True)
+labels = ["text on book spine", "red book", "tilted book" "something else", "wall"]
 mask = np.repeat(masks[0]['segmentation'][:, :, np.newaxis].astype(int), 3, axis=2)
 print(mask.shape)
 print(image.shape)
 
 for mask_dict in masks:
-    mask = np.repeat(mask_dict['segmentation'][:, :, np.newaxis].astype(int), 3, axis=2)
-    masked_img = image.copy()
-    cv2.bitwise_or(image, mask, masked_img)
-    outputs = model(**inputs)
-    logits_per_image = outputs.logits_per_image
+    if mask_dict['bbox'][2] > 100 and mask_dict['bbox'][3] > 200:
+        mask = np.repeat(mask_dict['segmentation'][:, :, np.newaxis].astype(np.uint8), 3, axis=2) * 255
+        masked_img = image.copy()
+        cv2.bitwise_and(image.astype(np.uint8), mask, masked_img)
+        # import pdb; pdb.set_trace()
+        show_annotated(masked_img)
+        inputs = processor(text=labels, images=masked_img, return_tensors="pt", padding=True)
+        outputs = model(**inputs)
+        logits_per_image = outputs.logits_per_image
+        probs = torch.softmax(logits_per_image, dim=1)
+        best_label_idx = torch.argmax(probs)
+        best_label = labels[best_label_idx]
 
-    probs = torch.softmax(logits_per_image, dim=1)
-    best_label_idx = torch.argmax(probs)
-    best_label = labels[best_label_idx]
-
-    print(f"The image is most likely a: {best_label}")
+        print(f"The image is most likely a: {best_label}")
