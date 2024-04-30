@@ -1,4 +1,4 @@
-from transformers import CLIPProcessor, CLIPModel
+from transformers import CLIPProcessor, CLIPModel, TrOCRProcessor, VisionEncoderDecoderModel
 from PIL import Image
 import torch
 
@@ -9,8 +9,19 @@ import torch
 import numpy as np
 import supervision as sv
 
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+from pytesseract import Output
+import pytesseract
+
+import cv2
+import numpy as np
+import pytesseract
+from scipy.ndimage import rotate
+
+clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
 processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+text_processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
+text_model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
 
 def load_image(image_path):
     image = cv2.imread(image_path)
@@ -43,6 +54,28 @@ def show_annotated(annotated_image):
     plt.axis('off')
     plt.show()
 
+def text_preprocess(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    return thresh
+
+def text_orientation_correction(image):
+    edges = cv2.Canny(image, 50, 150, apertureSize=3)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 100, minLineLength=100, maxLineGap=10)
+    angles = []
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+        angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+        angles.append(angle)
+    average_angle = np.mean(angles)
+    corrected_image = rotate(image, -average_angle)
+    return corrected_image
+
+def extract_text(image):
+    custom_config = r'--oem 3 --psm 6'
+    text = pytesseract.image_to_string(image, config=custom_config)
+    return text
+
 image = load_image("original_image.jpg")
 sam = sam_model_registry["vit_h"](checkpoint="sam_vit_h_4b8939.pth")
 sam.to(device="cuda")
@@ -73,16 +106,27 @@ print(image.shape)
 
 for mask_dict in masks:
     if mask_dict['bbox'][2] > 100 and mask_dict['bbox'][3] > 200:
+        # part 1 - mask image
         mask = np.repeat(mask_dict['segmentation'][:, :, np.newaxis].astype(np.uint8), 3, axis=2) * 255
         masked_img = image.copy()
         cv2.bitwise_and(image.astype(np.uint8), mask, masked_img)
-        # import pdb; pdb.set_trace()
         show_annotated(masked_img)
+        
+        # part 2 - get the classification for book/not book
         inputs = processor(text=labels, images=masked_img, return_tensors="pt", padding=True)
-        outputs = model(**inputs)
+        outputs = clip_model(**inputs)
         logits_per_image = outputs.logits_per_image
         probs = torch.softmax(logits_per_image, dim=1)
         best_label_idx = torch.argmax(probs)
         best_label = labels[best_label_idx]
-
         print(f"The image is most likely a: {best_label}")
+
+        # part 3 - get the actual text for the image
+        if best_label == "red book" or best_label == "text on book spine" or best_label == "tilted_book":
+            text_input = Image.fromarray(masked_img)
+            
+            pixel_values = processor(text_input, return_tensors="pt").pixel_values
+
+            generated_ids = model.generate(pixel_values)
+
+            generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
