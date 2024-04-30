@@ -1,48 +1,46 @@
-from PIL import Image
-import torchvision.transforms as transforms
-from torchvision.models.detection import fasterrcnn_resnet50_fpn
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+import cv2
+import numpy as np
+import pytesseract
+from scipy.ndimage import rotate
 
+def preprocess_image(image):
+    # Convert image to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Apply adaptive thresholding to make the text stand out
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    return thresh
 
-# pre-traiend model, allegedly has good classification
-model = fasterrcnn_resnet50_fpn(pretrained=True)
-model.eval()
+def correct_orientation(image):
+    # Use Hough transform to detect lines and estimate text orientation
+    edges = cv2.Canny(image, 50, 150, apertureSize=3)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 100, minLineLength=100, maxLineGap=10)
+    angles = []
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+        angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+        angles.append(angle)
+    # Average the angles to get a more accurate estimate
+    average_angle = np.mean(angles)
+    # Rotate the image to correct the orientation
+    corrected_image = rotate(image, -average_angle)
+    return corrected_image
 
-# load image - change this to be masked matrices
-image = Image.open('path_to_your_image.jpg')
-transform = transforms.Compose([transforms.ToTensor()])
-image = transform(image).unsqueeze(0)
+def extract_text(image):
+    # Run Tesseract OCR on the image
+    custom_config = r'--oem 3 --psm 6'
+    text = pytesseract.image_to_string(image, config=custom_config)
+    return text
 
-# detect objects
-predictions = model(image)
+# Load your image (assuming 'image' is your numpy array)
+image = np.array(your_numpy_array, dtype=np.uint8)
 
-# prediction processing
-for element in range(len(predictions[0]['labels'])):
-    if predictions[0]['labels'][element] == 84:  # COCO label for 'book' is 84, might be 74 there's like two things on the internet and idk whats what
-        print('Book found')
-        box = predictions[0]['boxes'][element]
-        print('Bounding box:', box)
+# Preprocess the image
+preprocessed_image = preprocess_image(image)
 
+# Correct the orientation of the text
+corrected_image = correct_orientation(preprocessed_image)
 
-# Convert tensor image back to PIL for display
-image = transforms.ToPILImage()(image.squeeze())
+# Extract text
+text = extract_text(corrected_image)
 
-# Create figure and axes
-fig, ax = plt.subplots(1)
-ax.imshow(image)
-
-# Process predictions and draw boxes
-labels = predictions[0]['labels']
-boxes = predictions[0]['boxes']
-scores = predictions[0]['scores']
-
-for label, box, score in zip(labels, boxes, scores):
-    if label == 84 and score > 0.5:  # Check for 'book' label and a decent score threshold
-        x, y, xmax, ymax = box
-        rect = patches.Rectangle((x, y), xmax - x, ymax - y, linewidth=2, edgecolor='r', facecolor='none')
-        ax.add_patch(rect)
-        plt.text(x, y, f'Book: {score:.2f}', fontsize=8, bbox=dict(facecolor='yellow', alpha=0.5))
-
-# Show the result
-plt.show()
+print(text)
