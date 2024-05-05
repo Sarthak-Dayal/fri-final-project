@@ -17,7 +17,7 @@ def encode_image(image_path):
     return base64.b64encode(image_file.read()).decode('utf-8')
 
 # Create the base64 encoded images from the image paths
-image_paths = ["images/all_books.png", "images/all_books_2.jpeg", "images/book_3.png"]
+image_paths = ["text-detection/images/all_books.png", "text-detection/images/all_books_2.jpeg", "text-detection/images/book_3.png"]
 base64_images = [encode_image(image_path) for image_path in image_paths]
 
 # Create the headers and payload for the API request

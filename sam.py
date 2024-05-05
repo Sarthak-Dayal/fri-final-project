@@ -1,3 +1,6 @@
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from transformers import CLIPProcessor, CLIPModel, TrOCRProcessor, VisionEncoderDecoderModel
 from PIL import Image
 import torch
@@ -76,10 +79,36 @@ def extract_text(image):
     text = pytesseract.image_to_string(image, config=custom_config)
     return text
 
+def classify_mask_as_book(masked_img, labels=["book", "not book"]):
+    # Apply the mask to the image
+    # masked_img = np.zeros_like(image)
+    # masked_img[mask] = image[mask]
+    
+    # Prepare the image for the CLIP model
+    pil_image = Image.fromarray(masked_img)
+    inputs = processor(text=labels, images=pil_image, return_tensors="pt", padding=True)
+    outputs = clip_model(**inputs)
+    
+    # Get the predicted label
+    logits_per_image = outputs.logits_per_image
+    probs = torch.softmax(logits_per_image, dim=1)
+    best_label_idx = torch.argmax(probs)
+    return labels[best_label_idx] == "book"
+
+def extract_text_from_mask(masked_img):
+    # Apply the mask to the image
+    # masked_img = np.zeros_like(image)
+    # masked_img[mask] = image[mask]
+    
+    # Extract text using pytesseract
+    text = pytesseract.image_to_string(masked_img)
+    return text.strip()
+
 image = load_image("original_image.jpg")
 sam = sam_model_registry["vit_h"](checkpoint="sam_vit_h_4b8939.pth")
-sam.to(device="cuda")
+sam.to(device="cpu")
 image = cv2.resize(image, (1024, 1024), interpolation=cv2.INTER_LINEAR)
+print(1)
 
 mask_generator = SamAutomaticMaskGenerator(model=sam,
     points_per_side=32,
@@ -89,44 +118,71 @@ mask_generator = SamAutomaticMaskGenerator(model=sam,
     crop_n_layers=1,
     crop_n_points_downscale_factor=2,
     min_mask_region_area=500)
+print(2)
 
 masks = mask_generator.generate(image)
+print(3)
 
 mask_annotator = sv.MaskAnnotator(color_lookup = sv.ColorLookup.INDEX)
 detections = sv.Detections.from_sam(masks)
 annotated_image = mask_annotator.annotate(image, detections)
+print(4)
 
-show_annotated(annotated_image)
+# show_annotated(annotated_image)
+# print("Done showing annotated image")
 
-annotated_pil_image = Image.fromarray(annotated_image)
-labels = ["text on book spine", "red book", "tilted book" "something else", "wall"]
-mask = np.repeat(masks[0]['segmentation'][:, :, np.newaxis].astype(int), 3, axis=2)
-print(mask.shape)
-print(image.shape)
+# Example usage with the 'masks' variable containing the set of image masks
+# and the 'image' variable containing the original image.
+book_count = 0
+count = 0
+for i, mask_dict in enumerate(masks):
+    mask = np.repeat(mask_dict['segmentation'][:, :, np.newaxis].astype(np.uint8), 3, axis=2) * 255
+    masked_img = image.copy()
+    cv2.bitwise_and(image.astype(np.uint8), mask, masked_img)
+    count += 1
+    
+    if classify_mask_as_book(masked_img):
+        book_count += 1
+        title = extract_text_from_mask(masked_img)
+        print(f"Book {book_count} title: {title}")
+    else:
+        print(f"Segment {count} not a book")
 
-for mask_dict in masks:
-    if mask_dict['bbox'][2] > 100 and mask_dict['bbox'][3] > 200:
-        # part 1 - mask image
-        mask = np.repeat(mask_dict['segmentation'][:, :, np.newaxis].astype(np.uint8), 3, axis=2) * 255
-        masked_img = image.copy()
-        cv2.bitwise_and(image.astype(np.uint8), mask, masked_img)
-        show_annotated(masked_img)
+# annotated_pil_image = Image.fromarray(annotated_image)
+# labels = ["text on book spine", "red book", "tilted book" "something else", "wall"]
+# mask = np.repeat(masks[0]['segmentation'][:, :, np.newaxis].astype(int), 3, axis=2)
+# print(mask.shape)
+# print(image.shape)
+
+# i = 0
+# print("Iterating through loop for applying image masks")
+# for mask_dict in masks:
+#     if mask_dict['bbox'][2] > 100 and mask_dict['bbox'][3] > 200:
+#         # part 1 - mask image
+#         mask = np.repeat(mask_dict['segmentation'][:, :, np.newaxis].astype(np.uint8), 3, axis=2) * 255
+#         masked_img = image.copy()
+#         cv2.bitwise_and(image.astype(np.uint8), mask, masked_img)
+#         # show_annotated(masked_img)
+#         print(f"Image {i} is masked")
+#         i += 1
         
-        # part 2 - get the classification for book/not book
-        inputs = processor(text=labels, images=masked_img, return_tensors="pt", padding=True)
-        outputs = clip_model(**inputs)
-        logits_per_image = outputs.logits_per_image
-        probs = torch.softmax(logits_per_image, dim=1)
-        best_label_idx = torch.argmax(probs)
-        best_label = labels[best_label_idx]
-        print(f"The image is most likely a: {best_label}")
+#         # part 2 - get the classification for book/not book
+#         inputs = processor(text=labels, images=masked_img, return_tensors="pt", padding=True)
+#         outputs = clip_model(**inputs)
+#         logits_per_image = outputs.logits_per_image
+#         probs = torch.softmax(logits_per_image, dim=1)
+#         best_label_idx = torch.argmax(probs)
+#         best_label = labels[best_label_idx]
+#         print(f"The image is most likely a: {best_label}")
 
-        # part 3 - get the actual text for the image
-        if best_label == "red book" or best_label == "text on book spine" or best_label == "tilted_book":
-            text_input = Image.fromarray(masked_img)
+#         # part 3 - get the actual text for the image
+#         if best_label == "red book" or best_label == "text on book spine" or best_label == "tilted book":
+#             text_input = Image.fromarray(masked_img)
             
-            pixel_values = processor(text_input, return_tensors="pt").pixel_values
+#             pixel_values = text_processor(text_input, return_tensors="pt").pixel_values
 
-            generated_ids = model.generate(pixel_values)
+#             generated_ids = text_model.generate(pixel_values)
 
-            generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+#             generated_text = text_processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            
+#             print(f"generated text for Image {i}: {generated_text}")
